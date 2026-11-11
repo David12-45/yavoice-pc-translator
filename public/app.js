@@ -59,12 +59,14 @@
   // Application State
   let ytPlayer = null;
   let ytReady = false;
-  let pendingVideoId = "8jPQjjsBbIc";
+  let pendingVideoId = null;
   let currentVideoId = null;
   let isTranslationReady = false;
   let pollIntervalId = null;
   let countdownIntervalId = null;
   let remainingSeconds = 0;
+  let activeRequestSeq = 0;
+  let shouldAutoPlayWhenReady = false;
 
   // Audio Mixer State
   // Modes: 'pc_mute' (0% original, 100% Russian), 'smart_duck' (auto-ducking), 'manual'
@@ -233,7 +235,7 @@
   // YouTube IFrame API Setup
   window.onYouTubeIframeAPIReady = function () {
     ytPlayer = new YT.Player("youtube-player", {
-      videoId: pendingVideoId,
+      videoId: pendingVideoId || "",
       playerVars: {
         playsinline: 1,
         rel: 0,
@@ -245,8 +247,11 @@
         onReady: () => {
           ytReady = true;
           applyOriginalVolume(origVolumePct);
-          // Automatically request translation for initial demo video
-          requestVideoTranslation(`https://www.youtube.com/watch?v=${pendingVideoId}`);
+          if (pendingVideoId && typeof ytPlayer.cueVideoById === "function") {
+            ytPlayer.cueVideoById(pendingVideoId);
+          } else if (urlInput.value.trim()) {
+            requestVideoTranslation(urlInput.value.trim());
+          }
         },
         onStateChange: onPlayerStateChange,
       },
@@ -588,8 +593,26 @@
   }
 
   // Request Translation from Backend (Cloudflare Pages Function / Node) with Browser Worker Fallback
-  async function requestVideoTranslation(rawUrl, isPolling = false) {
+  async function requestVideoTranslation(rawUrl, isPolling = false, autoPlay = false) {
     if (!rawUrl) return;
+    const reqSeq = isPolling ? activeRequestSeq : ++activeRequestSeq;
+    if (autoPlay) {
+      shouldAutoPlayWhenReady = true;
+    }
+
+    // Immediately switch the YouTube player to the user's video ID before waiting for Yandex API
+    const immediateId = extractYoutubeIdClient(rawUrl);
+    if (immediateId && immediateId !== currentVideoId) {
+      currentVideoId = immediateId;
+      if (ytPlayer && ytReady && typeof ytPlayer.cueVideoById === "function") {
+        ytPlayer.cueVideoById(immediateId);
+        applyOriginalVolume(audioMode === "manual" ? origVolumePct : 0);
+      } else {
+        pendingVideoId = immediateId;
+      }
+      overlayVideoTitle.textContent = `Загружаем русский перевод для вашего видео (${immediateId})...`;
+    }
+
     if (!isPolling) {
       clearPolling();
       isTranslationReady = false;
@@ -597,7 +620,7 @@
       submitBtn.disabled = true;
       showBanner(
         "loading",
-        "Подключаемся к Яндекс Нейропереводу и отключаем оригинальную дорожку...",
+        `Запрашиваем нейроперевод Яндекса для видео ${immediateId || ""} и отключаем оригинал (0%)...`,
         true
       );
     }
@@ -626,6 +649,11 @@
         data = await translateViaBrowserWorker(rawUrl, sourceLangSelect.value, targetLangSelect.value);
       }
 
+      // Discard response if user already requested another video
+      if (reqSeq !== activeRequestSeq) {
+        return;
+      }
+
       submitBtn.disabled = false;
 
       if (!data || !data.success) {
@@ -633,7 +661,6 @@
       }
 
       const { video, translation, subtitles } = data;
-      urlInput.value = video.url;
 
       // Load YouTube Video if changed
       if (video.videoId && video.videoId !== currentVideoId) {
@@ -673,9 +700,9 @@
 
         showBanner(
           "ready",
-          `Русская озвучка Яндекса загружена! Оригинальная дорожка: ${
+          `Русская озвучка загружена: «${video.title}»! Оригинал: ${
             audioMode === "pc_mute"
-              ? "0% (Полностью заглушена, как на ПК)"
+              ? "0% (Полностью заглушен, как на ПК)"
               : audioMode === "smart_duck"
               ? "Умное приглушение"
               : origVolumePct + "%"
@@ -683,13 +710,18 @@
           false,
           subtitleCues.length > 0 ? `Субтитров: ${subtitleCues.length}` : "Аудио готово"
         );
+
+        if (shouldAutoPlayWhenReady) {
+          shouldAutoPlayWhenReady = false;
+          startSynchronizedPlayback(true);
+        }
       } else {
         // Video is currently being translated by Yandex AI
         remainingSeconds =
           translation.remainingTime > 0 ? translation.remainingTime : 45;
         showBanner(
           "loading",
-          "Яндекс генерирует нейроозвучку для этого видео. Она запустится автоматически...",
+          `Яндекс переводит ваше видео «${video.title}». Озвучка включится автоматически...`,
           true,
           `~${remainingSeconds} сек`
         );
@@ -708,6 +740,7 @@
         }
       }
     } catch (err) {
+      if (reqSeq !== activeRequestSeq) return;
       submitBtn.disabled = false;
       clearPolling();
       showBanner("error", err.message || "Ошибка при запросе перевода", false);
@@ -715,7 +748,22 @@
   }
 
   // Start Synchronized Playback (Unlocks Mobile Audio + Starts YT Player at 0% Original Volume)
-  function startSynchronizedPlayback() {
+  function startSynchronizedPlayback(skipInputCheck = false) {
+    if (!skipInputCheck) {
+      const typedUrl = urlInput.value.trim();
+      const typedId = extractYoutubeIdClient(typedUrl);
+      if (typedUrl && (!currentVideoId || (typedId && typedId !== currentVideoId) || !isTranslationReady)) {
+        ensureAudioGraph();
+        requestVideoTranslation(typedUrl, false, true);
+        return;
+      }
+      if (!currentVideoId && !typedUrl) {
+        urlInput.focus();
+        showBanner("error", "Сначала вставьте ссылку на нужное видео YouTube в поле выше", false);
+        return;
+      }
+    }
+
     if (!ytPlayer || !ytReady) return;
     ensureAudioGraph();
     syncOverlay.classList.add("hidden");
@@ -793,8 +841,19 @@
     const val = urlInput.value.trim();
     if (val) {
       demoChips.forEach((c) => c.classList.remove("active"));
-      requestVideoTranslation(val);
+      requestVideoTranslation(val, false, true);
     }
+  });
+
+  // Automatically start translating as soon as user pastes a link into the input field
+  urlInput.addEventListener("paste", (e) => {
+    setTimeout(() => {
+      const val = urlInput.value.trim();
+      if (extractYoutubeIdClient(val)) {
+        demoChips.forEach((c) => c.classList.remove("active"));
+        requestVideoTranslation(val, false, false);
+      }
+    }, 50);
   });
 
   pasteBtn.addEventListener("click", async () => {
@@ -802,7 +861,8 @@
       const text = await navigator.clipboard.readText();
       if (text) {
         urlInput.value = text.trim();
-        requestVideoTranslation(text.trim());
+        demoChips.forEach((c) => c.classList.remove("active"));
+        requestVideoTranslation(text.trim(), false, false);
       }
     } catch {
       urlInput.focus();
@@ -815,11 +875,11 @@
       chip.classList.add("active");
       const demoUrl = chip.dataset.url;
       urlInput.value = demoUrl;
-      requestVideoTranslation(demoUrl);
+      requestVideoTranslation(demoUrl, false, false);
     });
   });
 
-  overlayStartBtn.addEventListener("click", startSynchronizedPlayback);
+  overlayStartBtn.addEventListener("click", () => startSynchronizedPlayback(false));
   playPauseBtn.addEventListener("click", togglePlayPause);
 
   seekBackBtn.addEventListener("click", () => {
