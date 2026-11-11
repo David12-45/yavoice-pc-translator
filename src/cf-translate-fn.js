@@ -140,6 +140,30 @@ async function fetchSubtitleCues(subtitlesList, responseLang = "ru") {
   }
 }
 
+async function fetchYouTubeDuration(youtubeId) {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${youtubeId}&hl=en`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const m = html.match(/"lengthSeconds":"(\d+)"/) || html.match(/"approxDurationMs":"(\d+)"/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return m[0].includes("approx") ? Math.round(n / 1000) : n;
+  } catch {
+    return null;
+  }
+}
+
+function humanizeError(err) {
+  const msg = (err && err.message) || "";
+  if (/create session/i.test(msg)) return "Яндекс временно не ответил (сессия). Нажмите «Перевести» ещё раз через пару секунд.";
+  if (/too long|длин/i.test(msg)) return "Видео слишком длинное — Яндекс переводит видео до ~4 часов.";
+  if (/live|стрим|трансляц/i.test(msg)) return "Прямые трансляции Яндекс не переводит.";
+  return msg ? `Яндекс не смог перевести видео: ${msg}` : "Не удалось получить перевод видео от Яндекса";
+}
+
 export async function onRequestOptions() {
   return new Response(null, {
     status: 204,
@@ -162,11 +186,12 @@ export async function onRequestPost(context) {
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
     const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
 
+    const realDuration = await fetchYouTubeDuration(youtubeId);
     const videoData = {
       url: normalizedUrl,
       videoId: youtubeId,
       host: "youtube",
-      duration: 343,
+      duration: realDuration || 343,
     };
 
     // Try direct YandexProvider first; fallback to VOTNextWorkerProvider if edge location is geo-restricted
@@ -193,11 +218,23 @@ export async function onRequestPost(context) {
     };
 
     let translationRes;
-    try {
-      translationRes = await translateWithClient(client);
-    } catch {
-      client = new VOTClient({ provider: VOTNextWorkerProvider });
-      translationRes = await translateWithClient(client);
+    let firstErr = null;
+    for (let attempt = 0; attempt < 3 && !translationRes; attempt++) {
+      try {
+        if (attempt > 0) client = new VOTClient({ provider: YandexProvider });
+        translationRes = await translateWithClient(client);
+      } catch (e) {
+        firstErr = firstErr || e;
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }
+    if (!translationRes) {
+      try {
+        client = new VOTClient({ provider: VOTNextWorkerProvider });
+        translationRes = await translateWithClient(client);
+      } catch {
+        throw new Error(humanizeError(firstErr));
+      }
     }
 
     const [meta, subsRes] = await Promise.all([

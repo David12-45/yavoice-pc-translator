@@ -627,26 +627,29 @@
 
     try {
       let data = null;
-      try {
-        const res = await fetch("./api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: rawUrl,
-            requestLang: sourceLangSelect.value,
-            responseLang: targetLangSelect.value,
-          }),
-        });
-        if (res.ok) {
-          data = await res.json();
-        } else if (res.status === 404 || res.status === 405) {
-          data = await translateViaBrowserWorker(rawUrl, sourceLangSelect.value, targetLangSelect.value);
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "Ошибка получения перевода");
+      let res = null;
+      for (let attempt = 0; attempt < 3 && !res; attempt++) {
+        try {
+          res = await fetch("./api/translate?t=" + Date.now(), {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: rawUrl,
+              requestLang: sourceLangSelect.value,
+              responseLang: targetLangSelect.value,
+            }),
+          });
+        } catch (netErr) {
+          if (attempt === 2) throw new Error("Нет связи с сервером перевода. Проверьте интернет и попробуйте ещё раз.");
+          await new Promise((r) => setTimeout(r, 1500));
         }
-      } catch (fetchErr) {
-        data = await translateViaBrowserWorker(rawUrl, sourceLangSelect.value, targetLangSelect.value);
+      }
+      if (res.ok) {
+        data = await res.json();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Ошибка сервера перевода (${res.status})`);
       }
 
       // Discard response if user already requested another video
