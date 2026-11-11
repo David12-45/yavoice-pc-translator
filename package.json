@@ -1,0 +1,21 @@
+{
+  "name": "antigravity",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --use-env-proxy --use-system-ca server.js",
+    "dev": "node --use-env-proxy --use-system-ca server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@vot.js/core": "^3.2.2",
+    "@vot.js/node": "^3.2.2",
+    "@vot.js/shared": "^3.2.2",
+    "cors": "^2.8.6",
+    "express": "^5.3.0"
+  }
+}

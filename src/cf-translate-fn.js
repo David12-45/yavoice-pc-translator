@@ -1,0 +1,260 @@
+import VOTClient from "@vot.js/core/client";
+import { YandexProvider } from "@vot.js/core/providers/yandex";
+import { VOTNextWorkerProvider } from "@vot.js/core/providers/votworker";
+
+function normalizeVideoInput(rawInput) {
+  let input = (rawInput || "").trim();
+  if (!input) {
+    throw new Error("Введите ссылку на видео YouTube");
+  }
+
+  const urlMatch = input.match(/https?:\/\/[^\s"'<>]+/i);
+  if (urlMatch) {
+    input = urlMatch[0];
+  } else if (/^[a-zA-Z0-9_-]{11}$/.test(input)) {
+    input = `https://www.youtube.com/watch?v=${input}`;
+  } else if (!/^https?:\/\//i.test(input)) {
+    input = `https://${input}`;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error("Некорректный формат ссылки на видео");
+  }
+
+  let youtubeId = null;
+  const host = parsed.hostname.replace(/^www\./, "").replace(/^m\./, "");
+
+  if (host === "youtu.be") {
+    youtubeId = parsed.pathname.split("/").filter(Boolean)[0] || null;
+  } else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+    if (parsed.pathname === "/watch") {
+      youtubeId = parsed.searchParams.get("v");
+    } else if (
+      parsed.pathname.startsWith("/shorts/") ||
+      parsed.pathname.startsWith("/embed/") ||
+      parsed.pathname.startsWith("/live/") ||
+      parsed.pathname.startsWith("/v/")
+    ) {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      youtubeId = parts[1] || null;
+    }
+  }
+
+  if (youtubeId) {
+    youtubeId = youtubeId.substring(0, 11);
+    return {
+      normalizedUrl: `https://youtu.be/${youtubeId}`,
+      watchUrl: `https://www.youtube.com/watch?v=${youtubeId}`,
+      youtubeId,
+    };
+  }
+
+  throw new Error("Пожалуйста, укажите корректную ссылку на видео YouTube");
+}
+
+async function fetchYouTubeMeta(youtubeId) {
+  if (!youtubeId) return null;
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(
+      youtubeId
+    )}&format=json`;
+    const res = await fetch(oembedUrl);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      title: data.title || `YouTube видео (${youtubeId})`,
+      author: data.author_name || "YouTube",
+      thumbnail:
+        data.thumbnail_url ||
+        `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`,
+    };
+  } catch {
+    return {
+      title: `YouTube видео (${youtubeId})`,
+      author: "YouTube",
+      thumbnail: `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`,
+    };
+  }
+}
+
+async function fetchSubtitleCues(subtitlesList, responseLang = "ru") {
+  if (!Array.isArray(subtitlesList) || subtitlesList.length === 0) {
+    return { availableTracks: [], cues: [] };
+  }
+
+  const targetTrack =
+    subtitlesList.find((s) => s.translatedLanguage === responseLang) ||
+    subtitlesList.find((s) => s.language === responseLang) ||
+    subtitlesList[0];
+
+  if (!targetTrack) {
+    return { availableTracks: subtitlesList, cues: [] };
+  }
+
+  try {
+    const [transRes, origRes] = await Promise.all([
+      targetTrack.translatedUrl
+        ? fetch(targetTrack.translatedUrl).then((r) => (r.ok ? r.json() : null))
+        : Promise.resolve(null),
+      targetTrack.url
+        ? fetch(targetTrack.url).then((r) => (r.ok ? r.json() : null))
+        : Promise.resolve(null),
+    ]);
+
+    const transSubs = transRes?.subtitles || [];
+    const origSubs = origRes?.subtitles || [];
+
+    const cues = transSubs.map((item, idx) => {
+      const origMatch =
+        origSubs[idx] &&
+        Math.abs((origSubs[idx].startMs || 0) - (item.startMs || 0)) < 2500
+          ? origSubs[idx]
+          : origSubs.find(
+              (o) => Math.abs((o.startMs || 0) - (item.startMs || 0)) < 1500
+            );
+
+      return {
+        text: item.text || "",
+        origText: origMatch ? origMatch.text || "" : "",
+        startMs: item.startMs || 0,
+        durationMs: item.durationMs || 2000,
+        endMs: (item.startMs || 0) + (item.durationMs || 2000),
+        speakerId: item.speakerId || "0",
+      };
+    });
+
+    return {
+      availableTracks: subtitlesList.map((s) => ({
+        language: s.language,
+        translatedLanguage: s.translatedLanguage,
+      })),
+      sourceLang: targetTrack.language,
+      targetLang: targetTrack.translatedLanguage,
+      cues,
+    };
+  } catch {
+    return { availableTracks: [], cues: [] };
+  }
+}
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
+export async function onRequestPost(context) {
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json; charset=utf-8",
+  };
+
+  try {
+    const body = await context.request.json();
+    const { url, requestLang = "en", responseLang = "ru" } = body || {};
+    const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
+
+    const videoData = {
+      url: normalizedUrl,
+      videoId: youtubeId,
+      host: "youtube",
+      duration: 343,
+    };
+
+    // Try direct YandexProvider first; fallback to VOTNextWorkerProvider if edge location is geo-restricted
+    let client = new VOTClient({ provider: YandexProvider });
+
+    const translateWithClient = async (vot) => {
+      try {
+        return await vot.translateVideo({
+          videoData,
+          requestLang,
+          responseLang,
+        });
+      } catch (err) {
+        if (err.message && err.message.includes("fake video translation fail audio")) {
+          return await vot.translateVideo({
+            videoData,
+            requestLang,
+            responseLang,
+            shouldSendFailedAudio: false,
+          });
+        }
+        throw err;
+      }
+    };
+
+    let translationRes;
+    try {
+      translationRes = await translateWithClient(client);
+    } catch {
+      client = new VOTClient({ provider: VOTNextWorkerProvider });
+      translationRes = await translateWithClient(client);
+    }
+
+    const [meta, subsRes] = await Promise.all([
+      fetchYouTubeMeta(youtubeId),
+      client
+        .getSubtitles({ videoData, requestLang })
+        .catch(() => ({ waiting: false, subtitles: [] })),
+    ]);
+
+    const subtitleData = await fetchSubtitleCues(
+      subsRes?.subtitles || [],
+      responseLang
+    );
+
+    const proxiedAudioUrl = translationRes.url
+      ? `/api/audio?url=${encodeURIComponent(
+          translationRes.url
+        )}&videoId=${encodeURIComponent(youtubeId)}`
+      : null;
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        video: {
+          videoId: youtubeId,
+          host: "youtube",
+          url: watchUrl,
+          normalizedUrl,
+          title: meta?.title || `YouTube (${youtubeId})`,
+          author: meta?.author || "YouTube",
+          thumbnail:
+            meta?.thumbnail ||
+            `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`,
+        },
+        translation: {
+          translated: Boolean(translationRes.translated),
+          status: translationRes.status,
+          remainingTime:
+            typeof translationRes.remainingTime === "number"
+              ? translationRes.remainingTime
+              : -1,
+          translationId: translationRes.translationId || null,
+          rawAudioUrl: translationRes.url || null,
+          audioUrl: proxiedAudioUrl,
+          downloadUrl: proxiedAudioUrl ? `${proxiedAudioUrl}&download=1` : null,
+        },
+        subtitles: subtitleData,
+      }),
+      { status: 200, headers: corsHeaders }
+    );
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err.message || "Не удалось получить перевод видео от Яндекса",
+      }),
+      { status: 400, headers: corsHeaders }
+    );
+  }
+}
