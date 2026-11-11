@@ -1,0 +1,9 @@
+[account]
+id = "23363f2b327ace30ef1a85790177a39d"
+name = "Slimy Uncle"
+apiToken = "cfat_cafZAddqzYpfPdC9UxVn879NFd38vjf49YTQ4zgu8d1b5495"
+expiresAt = "2026-11-11T20:35:27Z"
+
+[claim]
+url = "https://dash.cloudflare.com/claim-preview?claimToken=_gFAMM7OTK3rCdKB7hPjvVSS22JeAXXzC5PAlbP7EQU"
+expiresAt = "2026-11-11T20:35:27Z"

@@ -3217,10 +3217,13 @@ function getTimestamp() {
 // node_modules/@vot.js/shared/dist/secure.js
 var { componentVersion, chromiumRevision } = config_default;
 async function getCrypto() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto) {
+    return globalThis.crypto;
+  }
   if (typeof window !== "undefined" && window.crypto) {
     return window.crypto;
   }
-  return await import("node:crypto");
+  return globalThis.crypto;
 }
 var utf8Encoder = new TextEncoder();
 async function signHMAC(hashName, hmac, data) {

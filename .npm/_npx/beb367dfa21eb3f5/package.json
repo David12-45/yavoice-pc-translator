@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "_npx": {
+    "packages": [
+      "esbuild"
+    ]
+  }
+}
