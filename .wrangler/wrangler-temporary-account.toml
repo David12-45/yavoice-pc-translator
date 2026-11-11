@@ -1,9 +1,0 @@
-[account]
-id = "4ecc02aab7fc332a7e5c727c710c1e50"
-name = "Invincible Rubidium"
-apiToken = "cfat_UEBKxxX0AJFyi6XXcoF3rJneciLKOqxNzLNFOYaZ241ca675"
-expiresAt = "2026-11-11T20:41:43Z"
-
-[claim]
-url = "https://dash.cloudflare.com/claim-preview?claimToken=QT2K6WA07ucdqXW7jo3V4FbL1WNq1Cda2kSF6xIokBA"
-expiresAt = "2026-11-11T20:41:43Z"

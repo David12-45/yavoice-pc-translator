@@ -1,4 +1,10 @@
 node_modules/
-.DS_Store
-.env
+.npm/
+.config/
+.wrangler/
+.gemini/
+.bash*
+.profile
+.gitconfig
+David12-45/
 *.log
