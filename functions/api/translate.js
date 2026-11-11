@@ -3950,6 +3950,28 @@ async function fetchSubtitleCues(subtitlesList, responseLang = "ru") {
     return { availableTracks: [], cues: [] };
   }
 }
+async function fetchYouTubeDuration(youtubeId) {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${youtubeId}&hl=en`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" }
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const m = html.match(/"lengthSeconds":"(\d+)"/) || html.match(/"approxDurationMs":"(\d+)"/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return m[0].includes("approx") ? Math.round(n / 1e3) : n;
+  } catch {
+    return null;
+  }
+}
+function humanizeError(err) {
+  const msg = err && err.message || "";
+  if (/create session/i.test(msg)) return "\u042F\u043D\u0434\u0435\u043A\u0441 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435 \u043E\u0442\u0432\u0435\u0442\u0438\u043B (\u0441\u0435\u0441\u0441\u0438\u044F). \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u041F\u0435\u0440\u0435\u0432\u0435\u0441\u0442\u0438\xBB \u0435\u0449\u0451 \u0440\u0430\u0437 \u0447\u0435\u0440\u0435\u0437 \u043F\u0430\u0440\u0443 \u0441\u0435\u043A\u0443\u043D\u0434.";
+  if (/too long|длин/i.test(msg)) return "\u0412\u0438\u0434\u0435\u043E \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u0434\u043B\u0438\u043D\u043D\u043E\u0435 \u2014 \u042F\u043D\u0434\u0435\u043A\u0441 \u043F\u0435\u0440\u0435\u0432\u043E\u0434\u0438\u0442 \u0432\u0438\u0434\u0435\u043E \u0434\u043E ~4 \u0447\u0430\u0441\u043E\u0432.";
+  if (/live|стрим|трансляц/i.test(msg)) return "\u041F\u0440\u044F\u043C\u044B\u0435 \u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0446\u0438\u0438 \u042F\u043D\u0434\u0435\u043A\u0441 \u043D\u0435 \u043F\u0435\u0440\u0435\u0432\u043E\u0434\u0438\u0442.";
+  return msg ? `\u042F\u043D\u0434\u0435\u043A\u0441 \u043D\u0435 \u0441\u043C\u043E\u0433 \u043F\u0435\u0440\u0435\u0432\u0435\u0441\u0442\u0438 \u0432\u0438\u0434\u0435\u043E: ${msg}` : "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0432\u043E\u0434 \u0432\u0438\u0434\u0435\u043E \u043E\u0442 \u042F\u043D\u0434\u0435\u043A\u0441\u0430";
+}
 async function onRequestOptions() {
   return new Response(null, {
     status: 204,
@@ -3969,11 +3991,12 @@ async function onRequestPost(context) {
     const body = await context.request.json();
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
     const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
+    const realDuration = await fetchYouTubeDuration(youtubeId);
     const videoData = {
       url: normalizedUrl,
       videoId: youtubeId,
       host: "youtube",
-      duration: 343
+      duration: realDuration || 343
     };
     let client = new VOTClient({ provider: YandexProvider });
     const translateWithClient = async (vot) => {
@@ -3996,11 +4019,23 @@ async function onRequestPost(context) {
       }
     };
     let translationRes;
-    try {
-      translationRes = await translateWithClient(client);
-    } catch {
-      client = new VOTClient({ provider: VOTNextWorkerProvider });
-      translationRes = await translateWithClient(client);
+    let firstErr = null;
+    for (let attempt = 0; attempt < 3 && !translationRes; attempt++) {
+      try {
+        if (attempt > 0) client = new VOTClient({ provider: YandexProvider });
+        translationRes = await translateWithClient(client);
+      } catch (e) {
+        firstErr = firstErr || e;
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }
+    if (!translationRes) {
+      try {
+        client = new VOTClient({ provider: VOTNextWorkerProvider });
+        translationRes = await translateWithClient(client);
+      } catch {
+        throw new Error(humanizeError(firstErr));
+      }
     }
     const [meta, subsRes] = await Promise.all([
       fetchYouTubeMeta(youtubeId),
