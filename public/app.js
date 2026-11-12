@@ -83,6 +83,10 @@
   let freqDataArray = null;
   let audioGraphConnected = false;
   let lastSpeechDetectedTime = 0;
+  let lastSeekTimestamp = 0;
+  let lastPlayAttemptTimestamp = 0;
+  let bufferingTimeoutId = null;
+  let currentBlobUrl = null;
 
   // Subtitles State
   let subtitleCues = [];
@@ -117,17 +121,47 @@
     }
   }
 
-  // Initialize Web Audio API Graph (unlocked on user gesture when using same-origin /api/audio proxy)
-  function ensureAudioGraph() {
+  // Preload MP3 into an in-memory Blob URL so mobile playback has zero network jitter
+  async function preloadAudioBlob(audioUrl, reqSeq) {
     try {
-      const isSameOriginProxy =
+      const res = await fetch(audioUrl);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      if (reqSeq !== activeRequestSeq || !blob || blob.size < 1024) return;
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+      }
+      currentBlobUrl = URL.createObjectURL(blob);
+      const wasPlaying = !voiceAudio.paused;
+      const savedTime = voiceAudio.currentTime || 0;
+      const savedRate = voiceAudio.playbackRate || 1;
+      if (!wasPlaying) {
+        voiceAudio.src = currentBlobUrl;
+        voiceAudio.currentTime = savedTime;
+        voiceAudio.playbackRate = savedRate;
+      }
+    } catch {}
+  }
+
+  // Initialize Web Audio API Graph ONLY when user requests >100% Gain Boost
+  // (Avoids iOS WebKit MediaElementAudioSourceNode + iframe sample-rate stuttering at 0-100%)
+  function ensureAudioGraph() {
+    if (transVolumePct <= 100 && !audioGraphConnected) {
+      return;
+    }
+    try {
+      const canUseCors =
         voiceAudio.src &&
-        (voiceAudio.src.startsWith(window.location.origin) ||
-          voiceAudio.src.includes("/api/audio"));
-      if (!isSameOriginProxy) {
+        (voiceAudio.src.startsWith("blob:") ||
+          voiceAudio.src.startsWith(window.location.origin) ||
+          voiceAudio.src.includes("/api/audio") ||
+          voiceAudio.src.includes("yandex.net"));
+      if (!canUseCors) {
         return;
       }
-      voiceAudio.crossOrigin = "anonymous";
+      if (!voiceAudio.src.startsWith("blob:")) {
+        voiceAudio.crossOrigin = "anonymous";
+      }
       if (!audioCtx) {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) return;
@@ -268,6 +302,10 @@
 
     const state = event.data;
     if (state === YT.PlayerState.PLAYING) {
+      if (bufferingTimeoutId) {
+        clearTimeout(bufferingTimeoutId);
+        bufferingTimeoutId = null;
+      }
       syncOverlay.classList.add("hidden");
       ensureAudioGraph();
       // Force mute / volume policy immediately when YouTube starts playing
@@ -276,31 +314,57 @@
       } else if (audioMode === "manual") {
         applyOriginalVolume(origVolumePct);
       }
-      syncAudioToVideo(true);
-      voiceAudio.play().catch((err) => {
-        console.warn("Audio autoplay needed user gesture:", err.message);
-      });
+      if (voiceAudio.paused) {
+        syncAudioToVideo(true);
+        lastPlayAttemptTimestamp = performance.now();
+        voiceAudio.play().catch((err) => {
+          console.warn("Audio autoplay needed user gesture:", err.message);
+        });
+      } else {
+        // Already playing (e.g. recovered from brief quality switch): only resync if far off
+        syncAudioToVideo(false);
+      }
       playPauseBtn.textContent = "⏸ Пауза";
-    } else if (
-      state === YT.PlayerState.PAUSED ||
-      state === YT.PlayerState.ENDED ||
-      state === YT.PlayerState.BUFFERING
-    ) {
+    } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.ENDED) {
+      if (bufferingTimeoutId) {
+        clearTimeout(bufferingTimeoutId);
+        bufferingTimeoutId = null;
+      }
       voiceAudio.pause();
-      if (state !== YT.PlayerState.BUFFERING) {
-        playPauseBtn.textContent = "▶ Старт";
+      playPauseBtn.textContent = "▶ Старт";
+    } else if (state === YT.PlayerState.BUFFERING) {
+      // Debounce brief buffering events so quality switches don't cut off Russian voice
+      if (!bufferingTimeoutId) {
+        bufferingTimeoutId = setTimeout(() => {
+          bufferingTimeoutId = null;
+          const curState = ytPlayer && ytPlayer.getPlayerState ? ytPlayer.getPlayerState() : -1;
+          if (curState === YT.PlayerState.BUFFERING) {
+            voiceAudio.pause();
+          }
+        }, 900);
       }
     }
   }
 
   function syncAudioToVideo(forceSeek = false) {
     if (!ytPlayer || !ytReady || !isTranslationReady) return;
+    if (voiceAudio.seeking && forceSeek !== "hard") return;
+
     const ytTime = ytPlayer.getCurrentTime ? ytPlayer.getCurrentTime() : 0;
     const targetAudioTime = Math.max(0, ytTime + syncOffsetSec);
     const drift = Math.abs(voiceAudio.currentTime - targetAudioTime);
+    const now = performance.now();
 
-    if (forceSeek || drift > 0.32) {
+    // Note: ytPlayer.getCurrentTime() in YouTube IFrame API updates via postMessage every ~250-600ms.
+    // Never micro-seek on small <2.0s drift during continuous playback, or audio will stutter!
+    const shouldSeek =
+      forceSeek === "hard" ||
+      (forceSeek === true && drift > 0.75 && now - lastSeekTimestamp > 900) ||
+      (!forceSeek && drift > 2.2 && now - lastSeekTimestamp > 3500);
+
+    if (shouldSeek) {
       try {
+        lastSeekTimestamp = now;
         voiceAudio.currentTime = targetAudioTime;
       } catch {}
     }
@@ -330,9 +394,16 @@
       }
 
       if (isPlaying && isTranslationReady) {
-        // Keep audio in sync with video
+        // Keep audio in sync only if user scrubbed timeline (drift > 2.2s)
         syncAudioToVideo(false);
-        if (voiceAudio.paused) {
+        const now = performance.now();
+        if (
+          voiceAudio.paused &&
+          !voiceAudio.seeking &&
+          voiceAudio.readyState >= 2 &&
+          now - lastPlayAttemptTimestamp > 1500
+        ) {
+          lastPlayAttemptTimestamp = now;
           voiceAudio.play().catch(() => {});
         }
       }
@@ -342,7 +413,7 @@
 
       // Voice Activity & Smart Ducking
       updateVoiceMeterAndDucking(isPlaying, curTime * 1000);
-    }, 100);
+    }, 250);
   }
 
   function updateVoiceMeterAndDucking(isPlaying, curTimeMs) {
@@ -362,12 +433,14 @@
         sum += freqDataArray[i];
       }
       speechEnergy = sum / (bins - 2); // 0..255
-    } else {
+    } else if (subtitleCues && subtitleCues.length > 0) {
       // Fallback if Web Audio API graph isn't active: use subtitle cue presence
       const cueActive = subtitleCues.some(
         (c) => curTimeMs >= c.startMs && curTimeMs <= c.endMs
       );
       speechEnergy = cueActive ? 95 : 8;
+    } else {
+      speechEnergy = 85;
     }
 
     const isSpeaking = speechEnergy > 18;
@@ -684,12 +757,15 @@
       activeCueIndex = -1;
       renderTranscriptList();
 
-      if (translation.translated && translation.audioUrl) {
+      if (translation.translated && (translation.rawAudioUrl || translation.audioUrl)) {
         clearPolling();
         isTranslationReady = true;
-        voiceAudio.src = translation.audioUrl;
+        const directAudioUrl = translation.rawAudioUrl || translation.audioUrl;
+        voiceAudio.removeAttribute("crossorigin");
+        voiceAudio.src = directAudioUrl;
         voiceAudio.load();
         applyTranslationVolume();
+        preloadAudioBlob(directAudioUrl, reqSeq);
 
         // Setup Download Links
         if (translation.downloadUrl) {
@@ -783,6 +859,7 @@
 
     if (isTranslationReady) {
       syncAudioToVideo(true);
+      lastPlayAttemptTimestamp = performance.now();
       voiceAudio.play().catch(() => {});
     }
     playPauseBtn.textContent = "⏸ Пауза";
@@ -807,6 +884,7 @@
     const clamped = Math.max(0, dur > 0 ? Math.min(dur, targetSec) : targetSec);
     ytPlayer.seekTo(clamped, true);
     if (isTranslationReady) {
+      lastSeekTimestamp = performance.now();
       voiceAudio.currentTime = Math.max(0, clamped + syncOffsetSec);
     }
   }
@@ -897,7 +975,7 @@
   });
 
   resyncNowBtn.addEventListener("click", () => {
-    syncAudioToVideo(true);
+    syncAudioToVideo("hard");
   });
 
   seekSlider.addEventListener("input", () => {
@@ -928,8 +1006,8 @@
 
   // Volume Sliders
   transVolSlider.addEventListener("input", () => {
-    ensureAudioGraph();
     transVolumePct = Number(transVolSlider.value);
+    ensureAudioGraph();
     applyTranslationVolume();
     updateQuickPillsUI();
   });
@@ -946,12 +1024,12 @@
   // Quick Volume Pills
   volPills.forEach((pill) => {
     pill.addEventListener("click", () => {
-      ensureAudioGraph();
       const target = pill.dataset.target;
       const val = Number(pill.dataset.val);
       if (target === "trans") {
         transVolumePct = val;
         transVolSlider.value = String(val);
+        ensureAudioGraph();
         applyTranslationVolume();
         updateQuickPillsUI();
       } else if (target === "orig") {
@@ -968,7 +1046,7 @@
   function updateOffsetUI() {
     const sign = syncOffsetSec > 0 ? "+" : "";
     offsetReadout.textContent = `${sign}${syncOffsetSec.toFixed(1)}с`;
-    syncAudioToVideo(true);
+    syncAudioToVideo("hard");
   }
 
   offsetMinusBtn.addEventListener("click", () => {

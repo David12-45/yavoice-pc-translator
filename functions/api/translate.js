@@ -4110,7 +4110,7 @@ async function onRequestPost(context) {
           remainingTime: typeof translationRes.remainingTime === "number" ? translationRes.remainingTime : -1,
           translationId: translationRes.translationId || null,
           rawAudioUrl: translationRes.url || null,
-          audioUrl: proxiedAudioUrl,
+          audioUrl: translationRes.url || proxiedAudioUrl,
           downloadUrl: proxiedAudioUrl ? `${proxiedAudioUrl}&download=1` : null
         },
         subtitles: subtitleData

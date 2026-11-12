@@ -341,7 +341,7 @@ export async function onRequestPost(context) {
               : -1,
           translationId: translationRes.translationId || null,
           rawAudioUrl: translationRes.url || null,
-          audioUrl: proxiedAudioUrl,
+          audioUrl: translationRes.url || proxiedAudioUrl,
           downloadUrl: proxiedAudioUrl ? `${proxiedAudioUrl}&download=1` : null,
         },
         subtitles: subtitleData,
