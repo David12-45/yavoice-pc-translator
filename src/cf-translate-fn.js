@@ -184,6 +184,7 @@ export async function onRequestPost(context) {
     "Content-Type": "application/json; charset=utf-8",
   };
 
+  let firstErr = null;
   try {
     const body = await context.request.json();
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
@@ -226,7 +227,6 @@ export async function onRequestPost(context) {
     };
 
     let translationRes;
-    let firstErr = null;
     for (let attempt = 0; attempt < 3 && !translationRes; attempt++) {
       try {
         if (attempt > 0) client = new VOTClient({ provider: YandexProvider });
@@ -302,6 +302,11 @@ export async function onRequestPost(context) {
       JSON.stringify({
         success: false,
         error: err.message || "Не удалось получить перевод видео от Яндекса",
+        debug: {
+          firstErrMsg: firstErr?.message,
+          firstErrData: firstErr?.data,
+          errData: err?.data,
+        },
       }),
       { status: 400, headers: corsHeaders }
     );

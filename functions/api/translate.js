@@ -3990,6 +3990,7 @@ async function onRequestPost(context) {
     "Access-Control-Allow-Origin": "*",
     "Content-Type": "application/json; charset=utf-8"
   };
+  let firstErr = null;
   try {
     const body = await context.request.json();
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
@@ -4027,7 +4028,6 @@ async function onRequestPost(context) {
       }
     };
     let translationRes;
-    let firstErr = null;
     for (let attempt = 0; attempt < 3 && !translationRes; attempt++) {
       try {
         if (attempt > 0) client = new VOTClient({ provider: YandexProvider });
@@ -4089,7 +4089,12 @@ async function onRequestPost(context) {
     return new Response(
       JSON.stringify({
         success: false,
-        error: err.message || "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0432\u043E\u0434 \u0432\u0438\u0434\u0435\u043E \u043E\u0442 \u042F\u043D\u0434\u0435\u043A\u0441\u0430"
+        error: err.message || "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0432\u043E\u0434 \u0432\u0438\u0434\u0435\u043E \u043E\u0442 \u042F\u043D\u0434\u0435\u043A\u0441\u0430",
+        debug: {
+          firstErrMsg: firstErr?.message,
+          firstErrData: firstErr?.data,
+          errData: err?.data
+        }
       }),
       { status: 400, headers: corsHeaders }
     );
