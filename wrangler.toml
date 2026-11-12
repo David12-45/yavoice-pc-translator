@@ -1,9 +1,5 @@
 name = "yavoice-pc-translator"
-main = "src/worker.js"
+pages_build_output_dir = "public"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
-[assets]
-directory = "./public"
-binding = "ASSETS"
-run_worker_first = ["/api/*"]

@@ -701,9 +701,13 @@
     try {
       let data = null;
       let res = null;
+      const isGhPages = window.location.hostname.endsWith("github.io");
+      const apiBase = isGhPages
+        ? "https://yavoice-pc-translator.pages.dev/api/translate"
+        : "./api/translate";
       for (let attempt = 0; attempt < 3 && !res; attempt++) {
         try {
-          res = await fetch("./api/translate?t=" + Date.now(), {
+          res = await fetch(apiBase + "?t=" + Date.now(), {
             method: "POST",
             cache: "no-store",
             headers: { "Content-Type": "application/json" },
@@ -769,7 +773,10 @@
 
         // Setup Download Links
         if (translation.downloadUrl) {
-          downloadMp3Btn.href = translation.downloadUrl;
+          downloadMp3Btn.href =
+            isGhPages && translation.downloadUrl.startsWith("/")
+              ? "https://yavoice-pc-translator.pages.dev" + translation.downloadUrl
+              : translation.downloadUrl;
           downloadMp3Btn.style.display = "inline-flex";
         }
 
