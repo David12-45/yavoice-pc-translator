@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>YaVoice • Нейроперевод Видео (ПК Режим)</title>
+  <meta name="description" content="Сервис нейросетевого перевода видео YouTube как в Яндекс Браузере на ПК: полное отключение оригинальной дорожки (0%), умное приглушение (Smart Ducking) и синхронные субтитры на телефоне." />
+
+  <!-- PWA & iOS Home Screen App Mode -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="YaVoice" />
+  <meta name="application-name" content="YaVoice" />
+  <meta name="theme-color" content="#0a0b10" />
+
+  <!-- Icons for iOS Home Screen & Browser Tabs -->
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png?v=6" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=6" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png?v=6" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png?v=6" />
+  <link rel="manifest" href="./manifest.webmanifest?v=6" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css?v=6" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Header -->
+    <header class="top-header">
+      <div class="brand-group">
+        <div class="brand-mark" aria-hidden="true">Я</div>
+        <div class="brand-titles">
+          <h1>YaVoice • Перевод Видео (Режим ПК)</h1>
+          <p class="brand-subtitle">Чистая русская озвучка Яндекса на телефоне и ПК — без мешающей оригинальной дорожки</p>
+        </div>
+      </div>
+      <div class="pc-mode-badge" id="active-mode-pill">
+        <span class="status-dot"></span>
+        <span id="active-mode-label">ПК Режим: Оригинал 0% (Выкл)</span>
+      </div>
+    </header>
+
+    <!-- URL Input Panel -->
+    <section class="url-panel" aria-label="Ввод ссылки на видео">
+      <form class="url-form" id="translate-form">
+        <div class="input-row">
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="video-url-input"
+              class="url-input"
+              placeholder="Вставьте ссылку на YouTube (youtu.be, youtube.com/watch, Shorts)..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="paste-clipboard-btn" class="paste-btn" title="Вставить из буфера обмена">
+              📋 Вставить
+            </button>
+          </div>
+          <button type="submit" id="submit-translate-btn" class="translate-submit-btn">
+            <span>🎙️ Перевести как на ПК</span>
+          </button>
+        </div>
+
+        <div class="options-bar">
+          <div class="lang-selectors">
+            <span class="lang-label">Язык видео:</span>
+            <select id="source-lang-select" class="lang-select" aria-label="Исходный язык видео">
+              <option value="en" selected>🇬🇧 Английский (Авто)</option>
+              <option value="de">🇩🇪 Немецкий</option>
+              <option value="es">🇪🇸 Испанский</option>
+              <option value="fr">🇫🇷 Французский</option>
+              <option value="it">🇮🇹 Итальянский</option>
+              <option value="zh">🇨🇳 Китайский</option>
+              <option value="ja">🇯🇵 Японский</option>
+              <option value="ko">🇰🇷 Корейский</option>
+            </select>
+            <span class="lang-arrow">→</span>
+            <select id="target-lang-select" class="lang-select" aria-label="Язык перевода">
+              <option value="ru" selected>🇷🇺 Русский (Нейроозвучка)</option>
+              <option value="kk">🇰🇿 Казахский</option>
+              <option value="en">🇬🇧 Английский</option>
+            </select>
+          </div>
+
+          <div class="demo-strip" id="demo-chips-container">
+            <span class="demo-strip-label">Или выберите тест:</span>
+            <button type="button" class="demo-chip" data-url="https://www.youtube.com/watch?v=jNQXAC9IVRw">
+              ▶ Me at the zoo (19 сек)
+            </button>
+            <button type="button" class="demo-chip" data-url="https://www.youtube.com/watch?v=8jPQjjsBbIc">
+              ▶ TED: Как говорить, чтобы слушали
+            </button>
+            <button type="button" class="demo-chip" data-url="https://www.youtube.com/watch?v=arj7oStGLkU">
+              ▶ TED: Разум прокрастинатора
+            </button>
+            <button type="button" class="demo-chip" data-url="https://www.youtube.com/watch?v=qp0HIF3SfI4">
+              ▶ Саймон Синек: Лидеры
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Status Banner -->
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div id="status-spinner" class="spinner"></div>
+        <span id="status-message">Запрос перевода у серверов Яндекса...</span>
+      </div>
+      <span id="status-timer" style="font-family:var(--font-mono); font-size:0.8rem;"></span>
+    </div>
+
+    <!-- Main Workspace -->
+    <main class="workspace-grid">
+      <!-- Left Column: Video Player & Audio Studio Mixer -->
+      <div class="player-column">
+        <div class="video-card">
+          <div class="video-stage">
+            <div id="youtube-player"></div>
+
+            <!-- Mobile / First-Play Sync Overlay -->
+            <div id="sync-start-overlay" class="sync-start-overlay">
+              <button type="button" id="overlay-start-btn" class="big-start-btn">
+                <span>▶ Включить видео с русским переводом</span>
+              </button>
+              <p class="overlay-hint" id="overlay-video-title">
+                Оригинальная дорожка YouTube будет автоматически отключена (0%), зазвучит только русский перевод Яндекса
+              </p>
+            </div>
+          </div>
+
+          <!-- Live Subtitle Display -->
+          <div class="live-subtitle-bar" id="live-subtitle-bar">
+            <div class="live-sub-ru" id="live-sub-ru">Выберите демо-видео или вставьте ссылку на YouTube</div>
+            <div class="live-sub-orig" id="live-sub-orig">Русская озвучка и субтитры синхронизируются автоматически</div>
+          </div>
+
+          <!-- Unified Transport Bar -->
+          <div class="transport-bar">
+            <div class="timeline-row">
+              <span class="time-readout" id="current-time-readout">0:00</span>
+              <input
+                type="range"
+                id="timeline-seek-slider"
+                class="seek-slider"
+                min="0"
+                max="100"
+                step="0.1"
+                value="0"
+                aria-label="Перемотка видео"
+              />
+              <span class="time-readout" id="duration-time-readout">0:00</span>
+            </div>
+
+            <div class="transport-buttons-row">
+              <div class="transport-left">
+                <button type="button" id="play-pause-btn" class="ctrl-btn primary-play">
+                  ▶ Старт
+                </button>
+                <button type="button" id="seek-back-btn" class="ctrl-btn" title="Назад на 10 секунд">
+                  −10с
+                </button>
+                <button type="button" id="seek-fwd-btn" class="ctrl-btn" title="Вперёд на 10 секунд">
+                  +10с
+                </button>
+                <button type="button" id="resync-now-btn" class="ctrl-btn" title="Мгновенно синхронизировать аудио с видео">
+                  🔄 Синхр.
+                </button>
+              </div>
+
+              <div class="transport-right">
+                <label for="playback-rate-select" style="font-size:0.76rem; color:var(--text-secondary); font-weight:600;">Скорость:</label>
+                <select id="playback-rate-select" class="lang-select" aria-label="Скорость воспроизведения">
+                  <option value="0.75">0.75x</option>
+                  <option value="1" selected>1.0x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="1.75">1.75x</option>
+                  <option value="2">2.0x</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Studio Audio Mixer -->
+        <section class="mixer-card" aria-label="Настройки звука и подавления оригинала">
+          <div class="mixer-header">
+            <div class="mixer-title-group">
+              <h2>🎛️ Аудио-микшер перевода (Как на ПК)</h2>
+              <p>Управляйте громкостью оригинальной дорожки YouTube и русской озвучки</p>
+            </div>
+            <div class="voice-meter-pill" title="Индикатор активности русской озвучки">
+              <div class="meter-bars" id="voice-meter-bars">
+                <span class="meter-bar"></span>
+                <span class="meter-bar"></span>
+                <span class="meter-bar"></span>
+                <span class="meter-bar"></span>
+                <span class="meter-bar"></span>
+              </div>
+              <span id="voice-activity-text">Голос: Ожидание</span>
+            </div>
+          </div>
+
+          <!-- 3 Audio Modes -->
+          <div class="mode-selector-grid" role="radiogroup" aria-label="Режим работы звука">
+            <button type="button" class="mode-card-btn active" data-mode="pc_mute" id="mode-btn-pc-mute">
+              <div class="mode-card-top">
+                <span class="mode-name">🔇 Полный дубляж (ПК)</span>
+                <span class="mode-tag">Оригинал 0%</span>
+              </div>
+              <p class="mode-desc">Оригинальная дорожка полностью выключена. Слышна только чистая русская речь.</p>
+            </button>
+
+            <button type="button" class="mode-card-btn" data-mode="smart_duck" id="mode-btn-smart-duck">
+              <div class="mode-card-top">
+                <span class="mode-name">🧠 Умное приглушение</span>
+                <span class="mode-tag">Авто-Даккинг</span>
+              </div>
+              <p class="mode-desc">Оригинал глушится до 0% во время речи диктора и плавно звучит в паузах (музыка/эффекты).</p>
+            </button>
+
+            <button type="button" class="mode-card-btn" data-mode="manual" id="mode-btn-manual">
+              <div class="mode-card-top">
+                <span class="mode-name">🎚️ Свой баланс</span>
+                <span class="mode-tag">Ручной</span>
+              </div>
+              <p class="mode-desc">Настройте любую громкость оригинала (например, 5–15%) и перевода вручную.</p>
+            </button>
+          </div>
+
+          <!-- Independent Sliders -->
+          <div class="sliders-container">
+            <!-- Russian Translation Track -->
+            <div class="channel-row">
+              <div class="channel-top">
+                <span class="channel-label">🇷🇺 Громкость русского перевода (Яндекс)</span>
+                <span class="channel-badge" id="trans-vol-badge">100%</span>
+              </div>
+              <div class="slider-track-row">
+                <input
+                  type="range"
+                  id="trans-vol-slider"
+                  class="vol-slider"
+                  min="0"
+                  max="150"
+                  step="1"
+                  value="100"
+                  aria-label="Громкость русского перевода"
+                />
+                <div class="quick-vol-pills">
+                  <button type="button" class="vol-pill" data-target="trans" data-val="80">80%</button>
+                  <button type="button" class="vol-pill active" data-target="trans" data-val="100">100%</button>
+                  <button type="button" class="vol-pill" data-target="trans" data-val="130">130% Boost</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Original YouTube Track -->
+            <div class="channel-row">
+              <div class="channel-top">
+                <span class="channel-label">🌐 Громкость оригинальной дорожки (YouTube)</span>
+                <span class="channel-badge muted-badge" id="orig-vol-badge">0% (Заглушена)</span>
+              </div>
+              <div class="slider-track-row">
+                <input
+                  type="range"
+                  id="orig-vol-slider"
+                  class="vol-slider"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                  aria-label="Громкость оригинальной дорожки"
+                />
+                <div class="quick-vol-pills" id="orig-quick-pills">
+                  <button type="button" class="vol-pill active" data-target="orig" data-val="0">0% Выкл</button>
+                  <button type="button" class="vol-pill" data-target="orig" data-val="8">8%</button>
+                  <button type="button" class="vol-pill" data-target="orig" data-val="15">15%</button>
+                  <button type="button" class="vol-pill" data-target="orig" data-val="30">30%</button>
+                  <button type="button" class="vol-pill" data-target="orig" data-val="100">100%</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sync Calibration & Audio Download -->
+          <div class="mixer-footer">
+            <div class="sync-offset-group">
+              <span>Калибровка озвучки:</span>
+              <button type="button" id="offset-minus-btn" class="vol-pill">−0.2с</button>
+              <span class="offset-readout" id="offset-readout">0.0с</span>
+              <button type="button" id="offset-plus-btn" class="vol-pill">+0.2с</button>
+              <button type="button" id="offset-reset-btn" class="vol-pill">Сброс</button>
+            </div>
+
+            <div class="download-actions">
+              <a id="download-mp3-btn" href="#" download class="action-link-btn" style="display:none;">
+                ⬇️ Скачать озвучку (.MP3)
+              </a>
+              <button type="button" id="download-srt-btn" class="action-link-btn" style="display:none;">
+                📝 Скачать субтитры (.SRT)
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Column: Interactive Subtitles & Mobile Bookmarklet -->
+      <aside class="side-column">
+        <section class="transcript-card" aria-label="Синхронный текст перевода">
+          <div class="transcript-header">
+            <h3>💬 Нейро-субтитры Яндекса</h3>
+            <div class="sub-mode-toggle">
+              <button type="button" class="sub-tab-btn active" data-submode="both">RU + Ориг</button>
+              <button type="button" class="sub-tab-btn" data-submode="ru">Только RU</button>
+              <button type="button" class="sub-tab-btn" data-submode="off">Выкл</button>
+            </div>
+          </div>
+          <div id="transcript-list" class="transcript-list">
+            <div class="empty-transcript">
+              Субтитры с таймкодами появятся здесь сразу после загрузки перевода. Нажмите на любую фразу, чтобы перемотать видео.
+            </div>
+          </div>
+        </section>
+
+        <!-- Helper for rare/new videos -->
+        <section class="bookmarklet-card" aria-label="Как переводить редкие новые видео">
+          <h3>💡 Если редкое видео ещё не в базе Яндекса</h3>
+          <p>
+            95% популярных видео открываются здесь <strong>мгновенно в 1 клик</strong>. Если же видео совсем новое или редкое (YouTube блокирует скачивание его звука с сервера), сделайте 2 простых шага:
+          </p>
+          <p style="margin-top:8px; color:var(--text-primary); font-size:0.84rem; line-height:1.5;">
+            <strong>1.</strong> Откройте это видео в приложении <strong>Яндекс Браузер</strong> на телефоне и нажмите «Перевести видео» (браузер за ~1 мин загрузит звук в облачный кэш Яндекса).<br/>
+            <strong>2.</strong> Сразу после этого вставьте ссылку сюда — наш плеер мгновенно подхватит готовую русскую озвучку из облака Яндекса и включит видео <strong>с 0% звука оригинала</strong>!
+          </p>
+          <div class="code-copy-box" style="display:none;">
+            <code class="code-snippet" id="bookmarklet-code"></code>
+            <button type="button" id="copy-bookmarklet-btn" class="ctrl-btn">Копировать</button>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Hidden Audio Element for Yandex Neural Voice-Over Stream -->
+  <audio id="yandex-voice-audio" preload="auto"></audio>
+
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="./vot-client.bundle.js?v=5"></script>
+  <script src="./app.js?v=5"></script>
+</body>
+</html>
