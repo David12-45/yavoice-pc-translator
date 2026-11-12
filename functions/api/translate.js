@@ -3970,6 +3970,9 @@ function humanizeError(err) {
   if (/create session/i.test(msg)) return "\u042F\u043D\u0434\u0435\u043A\u0441 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u043E \u043D\u0435 \u043E\u0442\u0432\u0435\u0442\u0438\u043B (\u0441\u0435\u0441\u0441\u0438\u044F). \u041D\u0430\u0436\u043C\u0438\u0442\u0435 \xAB\u041F\u0435\u0440\u0435\u0432\u0435\u0441\u0442\u0438\xBB \u0435\u0449\u0451 \u0440\u0430\u0437 \u0447\u0435\u0440\u0435\u0437 \u043F\u0430\u0440\u0443 \u0441\u0435\u043A\u0443\u043D\u0434.";
   if (/too long|длин/i.test(msg)) return "\u0412\u0438\u0434\u0435\u043E \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u0434\u043B\u0438\u043D\u043D\u043E\u0435 \u2014 \u042F\u043D\u0434\u0435\u043A\u0441 \u043F\u0435\u0440\u0435\u0432\u043E\u0434\u0438\u0442 \u0432\u0438\u0434\u0435\u043E \u0434\u043E ~4 \u0447\u0430\u0441\u043E\u0432.";
   if (/live|стрим|трансляц/i.test(msg)) return "\u041F\u0440\u044F\u043C\u044B\u0435 \u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0446\u0438\u0438 \u042F\u043D\u0434\u0435\u043A\u0441 \u043D\u0435 \u043F\u0435\u0440\u0435\u0432\u043E\u0434\u0438\u0442.";
+  if (/couldn't translate|не смог перевести/i.test(msg)) {
+    return "\u042F\u043D\u0434\u0435\u043A\u0441 \u043E\u0442\u043A\u043B\u043E\u043D\u0438\u043B \u043F\u0435\u0440\u0435\u0432\u043E\u0434 \u044D\u0442\u043E\u0433\u043E \u0432\u0438\u0434\u0435\u043E (\u043A\u043E\u0434 FAILED). \u0412\u043E\u0437\u043C\u043E\u0436\u043D\u044B\u0435 \u043F\u0440\u0438\u0447\u0438\u043D\u044B: 1) \u0412\u0438\u0434\u0435\u043E \u0443\u0436\u0435 \u043D\u0430 \u0440\u0443\u0441\u0441\u043A\u043E\u043C \u044F\u0437\u044B\u043A\u0435; 2) \u0412 \u0432\u0438\u0434\u0435\u043E \u043D\u0435\u0442 \u0441\u0432\u044F\u0437\u043D\u043E\u0439 \u0440\u0435\u0447\u0438 (\u043C\u0443\u0437\u044B\u043A\u0430, \u043A\u043B\u0438\u043F, \u0444\u043E\u043D); 3) \u042F\u0437\u044B\u043A \u0432\u0438\u0434\u0435\u043E \u043D\u0435 \u0430\u043D\u0433\u043B\u0438\u0439\u0441\u043A\u0438\u0439 \u2014 \u043F\u0435\u0440\u0435\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u042F\u0437\u044B\u043A \u0432\u0438\u0434\u0435\u043E\xBB \u0432 \u0432\u044B\u043F\u0430\u0434\u0430\u044E\u0449\u0435\u043C \u0441\u043F\u0438\u0441\u043A\u0435; 4) \u0412\u0438\u0434\u0435\u043E \u0438\u043C\u0435\u0435\u0442 \u0432\u043E\u0437\u0440\u0430\u0441\u0442\u043D\u043E\u0435 \u0438\u043B\u0438 \u0440\u0435\u0433\u0438\u043E\u043D\u0430\u043B\u044C\u043D\u043E\u0435 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u0438\u0435.";
+  }
   return msg ? `\u042F\u043D\u0434\u0435\u043A\u0441 \u043D\u0435 \u0441\u043C\u043E\u0433 \u043F\u0435\u0440\u0435\u0432\u0435\u0441\u0442\u0438 \u0432\u0438\u0434\u0435\u043E: ${msg}` : "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u043F\u043E\u043B\u0443\u0447\u0438\u0442\u044C \u043F\u0435\u0440\u0435\u0432\u043E\u0434 \u0432\u0438\u0434\u0435\u043E \u043E\u0442 \u042F\u043D\u0434\u0435\u043A\u0441\u0430";
 }
 async function onRequestOptions() {
@@ -3991,7 +3994,10 @@ async function onRequestPost(context) {
     const body = await context.request.json();
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
     const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
-    const realDuration = await fetchYouTubeDuration(youtubeId);
+    const [realDuration, meta] = await Promise.all([
+      fetchYouTubeDuration(youtubeId),
+      fetchYouTubeMeta(youtubeId)
+    ]);
     const videoData = {
       url: normalizedUrl,
       videoId: youtubeId,
@@ -3999,20 +4005,22 @@ async function onRequestPost(context) {
       duration: realDuration || 343
     };
     let client = new VOTClient({ provider: YandexProvider });
-    const translateWithClient = async (vot) => {
+    const translateWithClient = async (vot, curLang = requestLang) => {
       try {
         return await vot.translateVideo({
           videoData,
-          requestLang,
-          responseLang
+          requestLang: curLang,
+          responseLang,
+          extraOpts: { videoTitle: meta?.title || "" }
         });
       } catch (err) {
         if (err.message && err.message.includes("fake video translation fail audio")) {
           return await vot.translateVideo({
             videoData,
-            requestLang,
+            requestLang: curLang,
             responseLang,
-            shouldSendFailedAudio: false
+            shouldSendFailedAudio: false,
+            extraOpts: { videoTitle: meta?.title || "" }
           });
         }
         throw err;
@@ -4029,6 +4037,13 @@ async function onRequestPost(context) {
         await new Promise((r) => setTimeout(r, 700));
       }
     }
+    if (!translationRes && firstErr?.data?.language && firstErr.data.language !== requestLang) {
+      try {
+        client = new VOTClient({ provider: YandexProvider });
+        translationRes = await translateWithClient(client, firstErr.data.language);
+      } catch {
+      }
+    }
     if (!translationRes) {
       try {
         client = new VOTClient({ provider: VOTNextWorkerProvider });
@@ -4037,10 +4052,7 @@ async function onRequestPost(context) {
         throw new Error(humanizeError(firstErr));
       }
     }
-    const [meta, subsRes] = await Promise.all([
-      fetchYouTubeMeta(youtubeId),
-      client.getSubtitles({ videoData, requestLang }).catch(() => ({ waiting: false, subtitles: [] }))
-    ]);
+    const subsRes = await client.getSubtitles({ videoData, requestLang }).catch(() => ({ waiting: false, subtitles: [] }));
     const subtitleData = await fetchSubtitleCues(
       subsRes?.subtitles || [],
       responseLang
