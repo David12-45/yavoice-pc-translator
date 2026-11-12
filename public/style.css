@@ -55,7 +55,10 @@ html, body {
 .app-shell {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 16px 16px 64px;
+  padding-top: max(16px, env(safe-area-inset-top, 16px));
+  padding-right: max(16px, env(safe-area-inset-right, 16px));
+  padding-bottom: max(64px, calc(48px + env(safe-area-inset-bottom, 0px)));
+  padding-left: max(16px, env(safe-area-inset-left, 16px));
 }
 
 /* Header */
