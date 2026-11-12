@@ -140,19 +140,31 @@ async function fetchSubtitleCues(subtitlesList, responseLang = "ru") {
   }
 }
 
-async function fetchYouTubeDuration(youtubeId) {
+async function fetchYouTubeInfo(youtubeId) {
   try {
     const res = await fetch(`https://www.youtube.com/watch?v=${youtubeId}&hl=en`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { duration: null, captionsUrl: null };
     const html = await res.text();
     const m = html.match(/"lengthSeconds":"(\d+)"/) || html.match(/"approxDurationMs":"(\d+)"/);
-    if (!m) return null;
-    const n = Number(m[1]);
-    return m[0].includes("approx") ? Math.round(n / 1000) : n;
+    let duration = null;
+    if (m) {
+      const n = Number(m[1]);
+      duration = m[0].includes("approx") ? Math.round(n / 1000) : n;
+    }
+    let captionsUrl = null;
+    const cm = html.match(/"captionTracks":(\[[^\]]+\])/);
+    if (cm) {
+      try {
+        const tracks = JSON.parse(cm[1]);
+        const enTrack = tracks.find(t => t.languageCode === "en") || tracks[0];
+        if (enTrack && enTrack.baseUrl) captionsUrl = enTrack.baseUrl;
+      } catch {}
+    }
+    return { duration, captionsUrl };
   } catch {
-    return null;
+    return { duration: null, captionsUrl: null };
   }
 }
 
@@ -190,16 +202,19 @@ export async function onRequestPost(context) {
     const { url, requestLang = "en", responseLang = "ru" } = body || {};
     const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
 
-    const [realDuration, meta] = await Promise.all([
-      fetchYouTubeDuration(youtubeId),
+    const [ytInfo, meta] = await Promise.all([
+      fetchYouTubeInfo(youtubeId),
       fetchYouTubeMeta(youtubeId),
     ]);
     const videoData = {
       url: normalizedUrl,
       videoId: youtubeId,
       host: "youtube",
-      duration: realDuration || 343,
+      duration: ytInfo.duration || 343,
     };
+    const translationHelp = ytInfo.captionsUrl
+      ? [{ target: "subtitles_file_url", targetUrl: ytInfo.captionsUrl }]
+      : null;
 
     // Try direct YandexProvider first; fallback to VOTNextWorkerProvider if edge location is geo-restricted
     let client = new VOTClient({ provider: YandexProvider });
@@ -210,6 +225,7 @@ export async function onRequestPost(context) {
           videoData,
           requestLang: curLang,
           responseLang,
+          translationHelp,
           extraOpts: { videoTitle: meta?.title || "" },
         });
       } catch (err) {
@@ -218,6 +234,7 @@ export async function onRequestPost(context) {
             videoData,
             requestLang: curLang,
             responseLang,
+            translationHelp,
             shouldSendFailedAudio: false,
             extraOpts: { videoTitle: meta?.title || "" },
           });
