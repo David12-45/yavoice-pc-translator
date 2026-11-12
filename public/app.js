@@ -638,6 +638,7 @@
               url: rawUrl,
               requestLang: sourceLangSelect.value,
               responseLang: targetLangSelect.value,
+              isPolling: Boolean(isPolling),
             }),
           });
         } catch (netErr) {
@@ -739,7 +740,7 @@
 
           pollIntervalId = setInterval(() => {
             requestVideoTranslation(rawUrl, true);
-          }, 6000);
+          }, 8000);
         }
       }
     } catch (err) {

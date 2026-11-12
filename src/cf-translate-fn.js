@@ -143,40 +143,45 @@ async function fetchSubtitleCues(subtitlesList, responseLang = "ru") {
 async function fetchYouTubeInfo(youtubeId) {
   try {
     const res = await fetch(`https://www.youtube.com/watch?v=${youtubeId}&hl=en`, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "en-US,en;q=0.9" },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
     });
-    if (!res.ok) return { duration: null, captionsUrl: null };
+    if (!res.ok) return { duration: null };
     const html = await res.text();
-    const m = html.match(/"lengthSeconds":"(\d+)"/) || html.match(/"approxDurationMs":"(\d+)"/);
+    const m =
+      html.match(/"lengthSeconds":"(\d+)"/) ||
+      html.match(/"approxDurationMs":"(\d+)"/);
     let duration = null;
     if (m) {
       const n = Number(m[1]);
       duration = m[0].includes("approx") ? Math.round(n / 1000) : n;
     }
-    let captionsUrl = null;
-    const cm = html.match(/"captionTracks":(\[[^\]]+\])/);
-    if (cm) {
-      try {
-        const tracks = JSON.parse(cm[1]);
-        const enTrack = tracks.find(t => t.languageCode === "en") || tracks[0];
-        if (enTrack && enTrack.baseUrl) captionsUrl = enTrack.baseUrl;
-      } catch {}
-    }
-    return { duration, captionsUrl };
+    return { duration };
   } catch {
-    return { duration: null, captionsUrl: null };
+    return { duration: null };
   }
 }
 
 function humanizeError(err) {
   const msg = (err && err.message) || "";
-  if (/create session/i.test(msg)) return "Яндекс временно не ответил (сессия). Нажмите «Перевести» ещё раз через пару секунд.";
-  if (/too long|длин/i.test(msg)) return "Видео слишком длинное — Яндекс переводит видео до ~4 часов.";
-  if (/live|стрим|трансляц/i.test(msg)) return "Прямые трансляции Яндекс не переводит.";
-  if (/couldn't translate|не смог перевести/i.test(msg)) {
-    return "Яндекс отклонил перевод этого видео (код FAILED). Возможные причины: 1) Видео уже на русском языке; 2) В видео нет связной речи (музыка, клип, фон); 3) Язык видео не английский — переключите «Язык видео» в выпадающем списке; 4) Видео имеет возрастное или региональное ограничение.";
+  if (/create session/i.test(msg)) {
+    return "Яндекс временно не ответил (сессия). Нажмите «Перевести» ещё раз через пару секунд.";
   }
-  return msg ? `Яндекс не смог перевести видео: ${msg}` : "Не удалось получить перевод видео от Яндекса";
+  if (/too long|длин/i.test(msg)) {
+    return "Видео слишком длинное — Яндекс переводит видео до ~4 часов.";
+  }
+  if (/live|стрим|трансляц/i.test(msg)) {
+    return "Прямые трансляции Яндекс не переводит.";
+  }
+  if (/couldn't translate|не смог перевести/i.test(msg)) {
+    return "Это видео ещё не загружено в облачную базу Яндекса (YouTube ограничил скачивание аудиодорожки напрямую с сервера). Что сделать: откройте эту ссылку на 1 минуту в приложении Яндекс Браузера и нажмите «Перевести видео» — браузер загрузит аудио в облако Яндекса, после чего видео сразу заработает здесь с 0% звука оригинала!";
+  }
+  return msg
+    ? `Яндекс не смог перевести видео: ${msg}`
+    : "Не удалось получить перевод видео от Яндекса";
 }
 
 export async function onRequestOptions() {
@@ -199,7 +204,12 @@ export async function onRequestPost(context) {
   let firstErr = null;
   try {
     const body = await context.request.json();
-    const { url, requestLang = "en", responseLang = "ru" } = body || {};
+    const {
+      url,
+      requestLang = "en",
+      responseLang = "ru",
+      isPolling = false,
+    } = body || {};
     const { normalizedUrl, watchUrl, youtubeId } = normalizeVideoInput(url);
 
     const [ytInfo, meta] = await Promise.all([
@@ -212,31 +222,40 @@ export async function onRequestPost(context) {
       host: "youtube",
       duration: ytInfo.duration || 343,
     };
-    const translationHelp = ytInfo.captionsUrl
-      ? [{ target: "subtitles_file_url", targetUrl: ytInfo.captionsUrl }]
-      : null;
 
     // Try direct YandexProvider first; fallback to VOTNextWorkerProvider if edge location is geo-restricted
     let client = new VOTClient({ provider: YandexProvider });
 
-    const translateWithClient = async (vot, curLang = requestLang) => {
+    const translateWithClient = async (
+      vot,
+      curLang = requestLang,
+      bypassCache = false
+    ) => {
+      const extraOpts = {
+        firstRequest: !isPolling,
+        bypassCache,
+      };
       try {
         return await vot.translateVideo({
           videoData,
           requestLang: curLang,
           responseLang,
-          translationHelp,
-          extraOpts: { videoTitle: meta?.title || "" },
+          translationHelp: null,
+          shouldSendFailedAudio: !isPolling,
+          extraOpts,
         });
       } catch (err) {
-        if (err.message && err.message.includes("fake video translation fail audio")) {
+        if (
+          err.message &&
+          err.message.includes("fake video translation fail audio")
+        ) {
           return await vot.translateVideo({
             videoData,
             requestLang: curLang,
             responseLang,
-            translationHelp,
+            translationHelp: null,
             shouldSendFailedAudio: false,
-            extraOpts: { videoTitle: meta?.title || "" },
+            extraOpts,
           });
         }
         throw err;
@@ -247,17 +266,32 @@ export async function onRequestPost(context) {
     for (let attempt = 0; attempt < 3 && !translationRes; attempt++) {
       try {
         if (attempt > 0) client = new VOTClient({ provider: YandexProvider });
-        translationRes = await translateWithClient(client);
+        const useBypass =
+          attempt === 1 &&
+          firstErr?.message &&
+          /couldn't translate/i.test(firstErr.message);
+        translationRes = await translateWithClient(
+          client,
+          requestLang,
+          useBypass
+        );
       } catch (e) {
         firstErr = firstErr || e;
         await new Promise((r) => setTimeout(r, 700));
       }
     }
     // Auto-detect language if Yandex returned a different detected language
-    if (!translationRes && firstErr?.data?.language && firstErr.data.language !== requestLang) {
+    if (
+      !translationRes &&
+      firstErr?.data?.language &&
+      firstErr.data.language !== requestLang
+    ) {
       try {
         client = new VOTClient({ provider: YandexProvider });
-        translationRes = await translateWithClient(client, firstErr.data.language);
+        translationRes = await translateWithClient(
+          client,
+          firstErr.data.language
+        );
       } catch {}
     }
     if (!translationRes) {

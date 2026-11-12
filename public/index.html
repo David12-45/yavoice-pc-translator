@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=3" />
+  <link rel="stylesheet" href="./style.css?v=4" />
 </head>
 <body>
   <div class="app-shell">
@@ -312,14 +312,18 @@
           </div>
         </section>
 
-        <!-- Bonus helper for inside Mobile Yandex Browser -->
-        <section class="bookmarklet-card" aria-label="Скрипт для мобильного Яндекс Браузера">
-          <h3>📱 Бонус: Кнопка внутри самого Яндекс Браузера</h3>
+        <!-- Helper for rare/new videos -->
+        <section class="bookmarklet-card" aria-label="Как переводить редкие новые видео">
+          <h3>💡 Если редкое видео ещё не в базе Яндекса</h3>
           <p>
-            Если вы смотрите YouTube напрямую в мобильном Яндекс Браузере и хотите заглушить оригинал в 0% прямо на сайте <code>m.youtube.com</code>, скопируйте этот мини-скрипт в адресную строку или в закладку:
+            95% популярных видео открываются здесь <strong>мгновенно в 1 клик</strong>. Если же видео совсем новое или редкое (YouTube блокирует скачивание его звука с сервера), сделайте 2 простых шага:
           </p>
-          <div class="code-copy-box">
-            <code class="code-snippet" id="bookmarklet-code">javascript:(function(){if(window.__yaPcMute){window.__yaPcMute.remove();delete window.__yaPcMute;}let vol=0;const bar=document.createElement('div');bar.id='__yaPcMute';bar.style.cssText='position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#12131a;color:#fff;border:1px solid #fc3f1d;border-radius:14px;padding:10px 14px;font-family:sans-serif;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,0.6);display:flex;align-items:center;gap:10px;';bar.innerHTML='&lt;b style="color:#fc3f1d"&gt;Я.ПК&lt;/b&gt;&lt;span&gt;Ориг: &lt;b id="__yaV"&gt;0%&lt;/b&gt;&lt;/span&gt;&lt;input id="__yaR" type="range" min="0" max="100" value="0" style="width:85px;accent-color:#fc3f1d"&gt;&lt;button id="__yaX" style="background:#262936;border:0;color:#fff;border-radius:6px;padding:3px 7px"&gt;✕&lt;/button&gt;';document.body.appendChild(bar);window.__yaPcMute=bar;const apply=()=>{document.querySelectorAll('video').forEach(v=>{if(Math.abs(v.volume-vol/100)>0.01){v.volume=vol/100;v.muted=(vol===0);}});};setInterval(apply,150);document.getElementById('__yaR').oninput=(e)=>{vol=Number(e.target.value);document.getElementById('__yaV').textContent=vol+'%';apply();};document.getElementById('__yaX').onclick=()=>bar.remove();apply();})();</code>
+          <p style="margin-top:8px; color:var(--text-primary); font-size:0.84rem; line-height:1.5;">
+            <strong>1.</strong> Откройте это видео в приложении <strong>Яндекс Браузер</strong> на телефоне и нажмите «Перевести видео» (браузер за ~1 мин загрузит звук в облачный кэш Яндекса).<br/>
+            <strong>2.</strong> Сразу после этого вставьте ссылку сюда — наш плеер мгновенно подхватит готовую русскую озвучку из облака Яндекса и включит видео <strong>с 0% звука оригинала</strong>!
+          </p>
+          <div class="code-copy-box" style="display:none;">
+            <code class="code-snippet" id="bookmarklet-code"></code>
             <button type="button" id="copy-bookmarklet-btn" class="ctrl-btn">Копировать</button>
           </div>
         </section>
@@ -331,7 +335,7 @@
   <audio id="yandex-voice-audio" preload="auto"></audio>
 
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="./vot-client.bundle.js?v=3"></script>
-  <script src="./app.js?v=3"></script>
+  <script src="./vot-client.bundle.js?v=4"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>
